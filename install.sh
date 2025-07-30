@@ -21,18 +21,13 @@ else
     exit 1
 fi
 
-# 🔧 检查 jq 是否安装
-command -v jq >/dev/null 2>&1 || { echo "❌ 需要安装 jq 工具。"; exit 1; }
-
-# ⬇️ 获取版本
-version=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
+# 📥 下载并解压固定版本
+version="1.11.9"
 echo "📦 下载版本: $version"
-
-# 📥 下载并解压
-url="https://github.com/SagerNet/sing-box/releases/download/${version}/sing-box-${version}-linux-${platform}.tar.gz"
-curl -L -o sing-box.tar.gz "$url"
+url="https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-linux-$platform.tar.gz"
+wget -O sing-box.tar.gz "$url"
 tar -zxf sing-box.tar.gz
-mv "sing-box-${version}-linux-${platform}" "$WORKDIR/bin"
+mv "sing-box-$version-linux-$platform" "$WORKDIR/bin"
 rm -f sing-box.tar.gz
 
 # 🔑 生成密钥
