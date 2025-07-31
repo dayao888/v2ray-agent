@@ -26,29 +26,23 @@ rm -rf "$WORKDIR"
 echo -e "${green}📁 创建工作目录...${re}"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
-# --- 架构检测 (保留，但不再用于决定下载路径，仅作信息显示) ---
+# --- 架构检测 (仅作信息显示) ---
 arch=$(uname -m)
-echo -e "${yellow}检测到的系统架构: $arch${re}" # 调试输出
+echo -e "${yellow}检测到的系统架构: $arch${re}"
 if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
     platform="amd64"
-    # 这里不需要 os_type 了，因为我们直接下载预编译的 sb
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
     platform="arm64"
-    # 这里不需要 os_type 了，因为我们直接下载预编译的 sb
 else
     echo -e "${red}❌ 不支持的架构: $arch${re}"
     exit 1
 fi
 
-# --- 下载 Sing-box (完全借鉴 serv00.sh 的下载方式) ---
-# 直接从 yonggekkk 的仓库下载预编译的 sb 二进制文件
+# --- 下载 Sing-box (Serv00 兼容版本) ---
 echo -e "${green}📦 下载 Sing-box (Serv00 兼容版本)...${re}"
-# 注意：这里直接下载 sb 文件，因为它被假定为预编译好的可执行文件，
-# 不再需要版本号，也不再是 tar.gz 压缩包。
 url="https://github.com/yonggekkk/Cloudflare_vless_trojan/releases/download/serv00/sb"
-SINGBOX_BIN_PATH="$BIN_DIR/sing-box" # 将下载的文件直接保存为 sing-box
+SINGBOX_BIN_PATH="$BIN_DIR/sing-box"
 
-# 使用 curl 下载，带进度条
 if command -v curl >/dev/null 2>&1; then
     curl -L -o "$SINGBOX_BIN_PATH" "$url"
 elif command -v wget >/dev/null 2>&1; then
@@ -76,7 +70,6 @@ else
 fi
 echo "生成的 UUID: $UUID"
 
-# 使用正确的命令生成 Reality 密钥对
 KEYS=$("$BIN_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep PrivateKey | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep PublicKey | awk '{print $2}')
@@ -87,7 +80,6 @@ echo "生成的 PublicKey: $PUBLIC_KEY"
 echo "生成的 ShortId: $SHORT_ID"
 
 # --- 定义配置参数 ---
-# 建议这里让用户输入，而不是硬编码，或提供默认值并允许修改
 DOMAIN="www.5215211.xyz" # 您的域名
 PORT=22724 # VLESS Reality 监听端口
 HYSTERIA2_PORT=30002 # Hysteria2 监听端口
@@ -118,9 +110,8 @@ cat > "$CONFIG_DIR/vless.json" <<EOF
 EOF
 
 echo -e "${green}📝 生成 Sing-box Hysteria2 配置文件...${re}"
-# 生成自签名 TLS 证书
 echo -e "${green}🔐 生成自签名 TLS 证书...${re}"
-openssl req -x509 -newkey rsa:2048 -keyout "$CONFIG_DIR/self.key" -out "$CONFIG_DIR/self.crt" -days 365 -nodes -subj "/CN=$DOMAIN" # CN改为您的域名
+openssl req -x509 -newkey rsa:2048 -keyout "$CONFIG_DIR/self.key" -out "$CONFIG_DIR/self.crt" -days 365 -nodes -subj "/CN=$DOMAIN"
 
 cat > "$CONFIG_DIR/hysteria2.json" <<EOF
 {
@@ -134,131 +125,132 @@ cat > "$CONFIG_DIR/hysteria2.json" <<EOF
       "enabled": true,
       "cert": "$CONFIG_DIR/self.crt",
       "key": "$CONFIG_DIR/self.key",
-      "alpn": ["h2", "h3"] # 建议添加 ALPN
+      "alpn": ["h2", "h3"]
     }
   }],
   "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-# --- 生成管理菜单脚本 (添加调试输出) ---
+# --- 生成管理菜单脚本 (改为使用 printf 写入，避免 heredoc 粘贴问题) ---
 echo -e "${green}⚙️ 生成管理面板脚本...${re}"
-set -x # 开启调试模式，显示执行的命令
-cat > "$WORKDIR/menu.sh" << EOF
-#!/usr/bin/env bash
-WORKDIR="$HOME/sing-box-no-root"
-BIN="$WORKDIR/bin/sing-box"
-LOG1="$WORKDIR/logs/vless.log"
-LOG2="$WORKDIR/logs/hysteria2.log"
-PID_DIR="$WORKDIR/run" # 新增PID文件目录
-mkdir -p "$PID_DIR" # 确保PID目录存在
-pidfile1="$PID_DIR/vless.pid"
-pidfile2="$PID_DIR/hysteria2.pid"
+
+# 定义菜单脚本的内容，注意内部变量需要正确转义
+# $ 和 ! 在这里需要被转义为 \$ 和 \!
+# 双引号内的变量会被主脚本替换，单引号内的不会
+# 每次打印一行，这样更稳定
+printf '%s\n' "#!/usr/bin/env bash
+WORKDIR=\"$HOME/sing-box-no-root\"
+BIN=\"\$WORKDIR/bin/sing-box\"
+LOG1=\"\$WORKDIR/logs/vless.log\"
+LOG2=\"\$WORKDIR/logs/hysteria2.log\"
+PID_DIR=\"\$WORKDIR/run\"
+mkdir -p \"\$PID_DIR\"
+pidfile1=\"\$PID_DIR/vless.pid\"
+pidfile2=\"\$PID_DIR/hysteria2.pid\"
 
 # 颜色定义（在菜单脚本内部也需要）
-re="\033[0m"
-green="\e[1;32m"
-red="\033[1;91m"
-yellow="\e[1;33m"
+re=\"\033[0m\"
+green=\"\e[1;32m\"
+red=\"\033[1;91m\"
+yellow=\"\e[1;33m\"
 
 # 检查服务运行状态
 check_process() {
-    local pidfile=$1
-    local service_name=$2
-    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-        echo -e "${green}[$service_name] 正在运行 (PID: $(cat "$pidfile"))${re}"
+    local pidfile=\$1
+    local service_name=\$2
+    if [ -f \"\$pidfile\" ] && kill -0 \"\$(cat \"\$pidfile\")\" 2>/dev/null; then
+        echo -e \"\${green}[\$service_name] 正在运行 (PID: \$(cat \"\$pidfile\"))\${re}\"
         return 0
     else
-        echo -e "${red}[$service_name] 未运行${re}"
+        echo -e \"\${red}[\$service_name] 未运行\${re}\"
         return 1
     fi
 }
 
 start_vless(){
-    if check_process "$pidfile1" "VLESS"; then
-        echo -e "${yellow}VLESS 已经在运行，无需重复启动。${re}"
+    if check_process \"\$pidfile1\" \"VLESS\"; then
+        echo -e \"\${yellow}VLESS 已经在运行，无需重复启动。\${re}\"
         return
     fi
-    echo -e "${green}🚀 启动 VLESS Reality...${re}"
-    nohup "$BIN" run -c "$WORKDIR/config/vless.json" > "$LOG1" 2>&1 &
-    echo \$! > "$pidfile1" # 这里使用 \$! 以避免在生成时被主脚本变量替换
-    sleep 1 # 等待服务启动
-    if check_process "$pidfile1" "VLESS"; then
-        echo -e "${green}✅ VLESS 启动成功，端口: $PORT，PID: $(cat $pidfile1)${re}"
+    echo -e \"\${green}🚀 启动 VLESS Reality...\${re}\"
+    nohup \"\$BIN\" run -c \"\$WORKDIR/config/vless.json\" > \"\$LOG1\" 2>&1 &
+    echo \$! > \"\$pidfile1\"
+    sleep 1
+    if check_process \"\$pidfile1\" \"VLESS\"; then
+        echo -e \"\${green}✅ VLESS 启动成功，端口: $PORT，PID: \$(cat \$pidfile1)\${re}\"
     else
-        echo -e "${red}❌ VLESS 启动失败，请检查日志: $LOG1${re}"
+        echo -e \"\${red}❌ VLESS 启动失败，请检查日志: \$LOG1\${re}\"
     fi
 }
 start_hysteria(){
-    if check_process "$pidfile2" "Hysteria2"; then
-        echo -e "${yellow}Hysteria2 已经在运行，无需重复启动。${re}"
+    if check_process \"\$pidfile2\" \"Hysteria2\"; then
+        echo -e \"\${yellow}Hysteria2 已经在运行，无需重复启动。\${re}\"
         return
     fi
-    echo -e "${green}🚀 启动 Hysteria2 TLS...${re}"
-    nohup "$BIN" run -c "$WORKDIR/config/hysteria2.json" > "$LOG2" 2>&1 &
-    echo \$! > "$pidfile2" # 这里使用 \$! 以避免在生成时被主脚本变量替换
-    sleep 1 # 等待服务启动
-    if check_process "$pidfile2" "Hysteria2"; then
-        echo -e "${green}✅ Hysteria2 启动成功，端口: $HYSTERIA2_PORT，PID: $(cat $pidfile2)${re}"
+    echo -e \"\${green}🚀 启动 Hysteria2 TLS...\${re}\"
+    nohup \"\$BIN\" run -c \"\$WORKDIR/config/hysteria2.json\" > \"\$LOG2\" 2>&1 &
+    echo \$! > \"\$pidfile2\"
+    sleep 1
+    if check_process \"\$pidfile2\" \"Hysteria2\"; then
+        echo -e \"\${green}✅ Hysteria2 启动成功，端口: $HYSTERIA2_PORT，PID: \$(cat \$pidfile2)\${re}\"
     else
-        echo -e "${red}❌ Hysteria2 启动失败，请检查日志: $LOG2${re}"
+        echo -e \"\${red}❌ Hysteria2 启动失败，请检查日志: \$LOG2\${re}\"
     fi
 }
 stop_all(){
-    echo -e "${yellow}🛑 停止全部服务...${re}"
+    echo -e \"\${yellow}🛑 停止全部服务...\${re}\"
     local stopped_count=0
-    if check_process "$pidfile1" "VLESS"; then
-        kill "\$(cat "$pidfile1")" 2>/dev/null && rm -f "$pidfile1" && stopped_count=\$((stopped_count+1))
-        echo -e "${green}VLESS 服务已停止。${re}"
+    if check_process \"\$pidfile1\" \"VLESS\"; then
+        kill \"\$(cat \"\$pidfile1\")\" 2>/dev/null && rm -f \"\$pidfile1\" && stopped_count=\$((stopped_count+1))
+        echo -e \"\${green}VLESS 服务已停止。\${re}\"
     fi
-    if check_process "$pidfile2" "Hysteria2"; then
-        kill "\$(cat "$pidfile2")" 2>/dev/null && rm -f "$pidfile2" && stopped_count=\$((stopped_count+1))
-        echo -e "${green}Hysteria2 服务已停止。${re}"
+    if check_process \"\$pidfile2\" \"Hysteria2\"; then
+        kill \"\$(cat \"\$pidfile2\")\" 2>/dev/null && rm -f \"\$pidfile2\" && stopped_count=\$((stopped_count+1))
+        echo -e \"\${green}Hysteria2 服务已停止。\${re}\"
     fi
-    if [ "\$stopped_count" -eq 0 ]; then
-        echo -e "${yellow}没有正在运行的服务需要停止。${re}"
+    if [ \"\$stopped_count\" -eq 0 ]; then
+        echo -e \"\${yellow}没有正在运行的服务需要停止。\${re}\"
     else
-        echo -e "${green}所有已知的 Sing-box 服务已停止。${re}"
+        echo -e \"\${green}所有已知的 Sing-box 服务已停止。\${re}\"
     fi
 }
 show_status(){
-    echo -e "\n=== 服务运行状态 ==="
-    check_process "$pidfile1" "VLESS"
-    check_process "$pidfile2" "Hysteria2"
-    echo "======================"
+    echo -e \"\n=== 服务运行状态 ===\"
+    check_process \"\$pidfile1\" \"VLESS\"
+    check_process \"\$pidfile2\" \"Hysteria2\"
+    echo \"======================\"
 }
 show_menu(){
     clear;
-    echo -e "${green}=== Sing-box 管理面板 ===${re}"
+    echo -e \"\${green}=== Sing-box 管理面板 ===\${re}\"
     show_status
-    echo -e "\n1) 启动 VLESS Reality"
-    echo -e "2) 启动 Hysteria2 TLS"
-    echo -e "3) 停止全部服务"
-    echo -e "4) 查看 VLESS 日志"
-    echo -e "5) 查看 Hysteria2 日志"
-    echo -e "6) 查看 VLESS 配置"
-    echo -e "7) 查看 Hysteria2 配置"
-    echo -e "8) 退出"
-    echo -n -e "${purple}请选择 [1-8]: ${re}"
+    echo -e \"\n1) 启动 VLESS Reality\"
+    echo -e \"2) 启动 Hysteria2 TLS\"
+    echo -e \"3) 停止全部服务\"
+    echo -e \"4) 查看 VLESS 日志\"
+    echo -e \"5) 查看 Hysteria2 日志\"
+    echo -e \"6) 查看 VLESS 配置\"
+    echo -e \"7) 查看 Hysteria2 配置\"
+    echo -e \"8) 退出\"
+    echo -n -e \"\${purple}请选择 [1-8]: \${re}\"
 }
 while true; do
     show_menu
     read -r choice
-    case \$choice in # 这里也需要转义 choice
+    case \$choice in
         1) start_vless;;
         2) start_hysteria;;
         3) stop_all;;
-        4) echo -e "${green}-- VLESS 日志 (最近20行) --${re}"; tail -n20 "$LOG1" || echo -e "${yellow}日志文件不存在或为空。${re}";;
-        5) echo -e "${green}-- Hysteria2 日志 (最近20行) --${re}"; tail -n20 "$LOG2" || echo -e "${yellow}日志文件不存在或为空。${re}";;
-        6) echo -e "${green}-- VLESS 配置 --${re}"; head -n20 "$WORKDIR/config/vless.json";;
-        7) echo -e "${green}-- Hysteria2 配置 --${re}"; head -n20 "$WORKDIR/config/hysteria2.json";;
-        8) stop_all; echo -e "${green}退出管理面板。${re}"; exit 0;;
-        *) echo -e "${red}无效输入，请重新选择。${re}";;
+        4) echo -e \"\${green}-- VLESS 日志 (最近20行) --\${re}\"; tail -n20 \"\$LOG1\" || echo -e \"\${yellow}日志文件不存在或为空。\${re}\";;
+        5) echo -e \"\${green}-- Hysteria2 日志 (最近20行) --\${re}\"; tail -n20 \"\$LOG2\" || echo -e \"\${yellow}日志文件不存在或为空。\${re}\";;
+        6) echo -e \"\${green}-- VLESS 配置 --\${re}\"; head -n20 \"\$WORKDIR/config/vless.json\";;
+        7) echo -e \"\${green}-- Hysteria2 配置 --\${re}\"; head -n20 \"\$WORKDIR/config/hysteria2.json\";;
+        8) stop_all; echo -e \"\${green}退出管理面板。\${re}\"; exit 0;;
+        *) echo -e \"\${red}无效输入，请重新选择。\${re}\";;
     esac
-    echo -e "${yellow}按回车键继续...${re}"; read -r
-done
-EOF
-set +x # 关闭调试模式
+    echo -e \"\${yellow}按回车键继续...\${re}\"; read -r
+done" > "$WORKDIR/menu.sh"
 
 chmod +x "$WORKDIR/menu.sh"
 
