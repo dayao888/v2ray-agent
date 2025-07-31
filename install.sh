@@ -1,46 +1,100 @@
 #!/usr/bin/env bash
 set -e
 
-echo "🧹 清理旧目录..."
-rm -rf "$HOME/sing-box-no-root"
+# --- 辅助函数和变量定义 ---
+# 颜色定义
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 
+# 工作目录定义
 WORKDIR="$HOME/sing-box-no-root"
-mkdir -p "$WORKDIR/bin" "$WORKDIR/config" "$WORKDIR/logs"
+BIN_DIR="$WORKDIR/bin"
+CONFIG_DIR="$WORKDIR/config"
+LOG_DIR="$WORKDIR/logs"
 
+echo -e "${green}🧹 清理旧目录...${re}"
+rm -rf "$WORKDIR"
+
+echo -e "${green}📁 创建工作目录...${re}"
+mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$LOG_DIR"
+
+# --- 架构检测 ---
 arch=$(uname -m)
-if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
+if [[ "$arch" == "x86_64" ]]; then
     platform="amd64"
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
     platform="arm64"
 else
-    echo "❌ 不支持的架构: $arch"
+    echo -e "${red}❌ 不支持的架构: $arch${re}"
     exit 1
 fi
 
-version="1.11.9"
-echo "📦 下载版本: $version"
+# --- 下载 Sing-box ---
+# 使用 Sing-box 官方最新版本
+version="1.11.9" # 您可以根据需要更改为最新版本
+echo -e "${green}📦 下载 Sing-box 版本: $version for Linux $platform...${re}"
 url="https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-linux-$platform.tar.gz"
-wget -O sing-box.tar.gz "$url"
-tar -zxf sing-box.tar.gz
-mv "sing-box-$version-linux-$platform/sing-box" "$WORKDIR/bin/sing-box"
-chmod +x "$WORKDIR/bin/sing-box"
-rm -rf "sing-box-$version-linux-$platform" sing-box.tar.gz
+DOWNLOADED_FILE="$WORKDIR/sing-box.tar.gz"
 
-# UUID 兼容处理
-if command -v uuidgen >/dev/null 2>&1; then
-  UUID=$(uuidgen)
+# 使用 curl 下载，带进度条
+if command -v curl >/dev/null 2>&1; then
+    curl -L -o "$DOWNLOADED_FILE" "$url"
+elif command -v wget >/dev/null 2>&1; then
+    wget -O "$DOWNLOADED_FILE" "$url"
 else
-  UUID=$(openssl rand -hex 16 | sed 's/\\(..\\)/\\1-/4; s/\\(..\\)/\\1-/6; s/\\(..\\)/\\1-/8; s/\\(..\\)/\\1-/10')
+    echo -e "${red}❌ 无法下载 Sing-box，请确保已安装 curl 或 wget。${re}"
+    exit 1
 fi
 
-KEYS=$("$WORKDIR/bin/sing-box" generate reality-key)
+if [ ! -f "$DOWNLOADED_FILE" ]; then
+    echo -e "${red}❌ Sing-box 下载失败，文件不存在: $DOWNLOADED_FILE${re}"
+    exit 1
+fi
+
+echo -e "${green}解压 Sing-box...${re}"
+tar -zxf "$DOWNLOADED_FILE" -C "$WORKDIR" --strip-components=1 "sing-box-$version-linux-$platform/sing-box"
+mv "$WORKDIR/sing-box" "$BIN_DIR/sing-box"
+chmod +x "$BIN_DIR/sing-box"
+rm -f "$DOWNLOADED_FILE" # 删除压缩包
+rm -rf "$WORKDIR/sing-box-$version-linux-$platform" # 清理解压目录残留
+
+# --- 生成 UUID 和 Reality 密钥 ---
+echo -e "${green}🔑 生成 UUID 和 Reality 密钥...${re}"
+if command -v uuidgen >/dev/null 2>&1; then
+    UUID=$(uuidgen)
+else
+    # 兼容性处理，使用 openssl 生成类似 UUID 的字符串
+    UUID=$(openssl rand -hex 16 | sed 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1\2\3\4-\5\6-\7\8-\9\10-\11\12\13\14\15\16/')
+fi
+echo "生成的 UUID: $UUID"
+
+# 使用正确的命令生成 Reality 密钥对
+KEYS=$("$BIN_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep PrivateKey | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep PublicKey | awk '{print $2}')
 SHORT_ID=$(openssl rand -hex 8)
-DOMAIN="www.5215211.xyz"
-PORT=22724
 
-cat > "$WORKDIR/config/vless.json" <<EOF
+echo "生成的 PrivateKey: $PRIVATE_KEY"
+echo "生成的 PublicKey: $PUBLIC_KEY"
+echo "生成的 ShortId: $SHORT_ID"
+
+# --- 定义配置参数 ---
+# 建议这里让用户输入，而不是硬编码，或提供默认值并允许修改
+DOMAIN="www.5215211.xyz" # 您的域名
+PORT=22724 # VLESS Reality 监听端口
+HYSTERIA2_PORT=30002 # Hysteria2 监听端口
+HYSTERIA2_PASSWORD="mypass123" # Hysteria2 密码，请务必修改为强密码
+
+echo -e "${green}📝 生成 Sing-box VLESS Reality 配置文件...${re}"
+cat > "$CONFIG_DIR/vless.json" <<EOF
 {
   "log": { "level": "info" },
   "inbounds": [{
@@ -63,65 +117,159 @@ cat > "$WORKDIR/config/vless.json" <<EOF
 }
 EOF
 
-cat > "$WORKDIR/config/hysteria2.json" <<EOF
+echo -e "${green}📝 生成 Sing-box Hysteria2 配置文件...${re}"
+# 生成自签名 TLS 证书
+echo -e "${green}🔐 生成自签名 TLS 证书...${re}"
+openssl req -x509 -newkey rsa:2048 -keyout "$CONFIG_DIR/self.key" -out "$CONFIG_DIR/self.crt" -days 365 -nodes -subj "/CN=$DOMAIN" # CN改为您的域名
+
+cat > "$CONFIG_DIR/hysteria2.json" <<EOF
 {
   "log": { "level": "info" },
   "inbounds": [{
     "type": "hysteria2",
     "listen": "0.0.0.0",
-    "listen_port": 30002,
-    "users": [{ "password": "mypass123" }],
+    "listen_port": $HYSTERIA2_PORT,
+    "users": [{ "password": "$HYSTERIA2_PASSWORD" }],
     "tls": {
       "enabled": true,
-      "cert": "$WORKDIR/config/self.crt",
-      "key": "$WORKDIR/config/self.key"
+      "cert": "$CONFIG_DIR/self.crt",
+      "key": "$CONFIG_DIR/self.key",
+      "alpn": ["h2", "h3"] # 建议添加 ALPN
     }
   }],
   "outbounds": [{ "type": "direct" }]
 }
 EOF
 
-openssl req -x509 -newkey rsa:2048 -keyout "$WORKDIR/config/self.key" -out "$WORKDIR/config/self.crt" -days 365 -nodes -subj "/CN=localhost"
-
-cat > "$WORKDIR/menu.sh" << 'EOF'
+# --- 生成管理菜单脚本 ---
+echo -e "${green}⚙️ 生成管理面板脚本...${re}"
+cat > "$WORKDIR/menu.sh" << EOF
 #!/usr/bin/env bash
 WORKDIR="$HOME/sing-box-no-root"
 BIN="$WORKDIR/bin/sing-box"
 LOG1="$WORKDIR/logs/vless.log"
 LOG2="$WORKDIR/logs/hysteria2.log"
-pidfile1="$WORKDIR/logs/vless.pid"
-pidfile2="$WORKDIR/logs/hysteria2.pid"
+PID_DIR="$WORKDIR/run" # 新增PID文件目录
+mkdir -p "$PID_DIR" # 确保PID目录存在
+pidfile1="$PID_DIR/vless.pid"
+pidfile2="$PID_DIR/hysteria2.pid"
 
-start_vless(){ nohup "$BIN" run -c "$WORKDIR/config/vless.json" > "$LOG1" 2>&1 & echo $! > "$pidfile1"; echo "✅ VLESS 启动成功，端口: 22724，PID: $(cat $pidfile1)"; }
-start_hysteria(){ nohup "$BIN" run -c "$WORKDIR/config/hysteria2.json" > "$LOG2" 2>&1 & echo $! > "$pidfile2"; echo "✅ Hysteria2 启动成功，端口: 30002，PID: $(cat $pidfile2)"; }
-stop_all(){ kill $(cat $pidfile1 $pidfile2 2>/dev/null) 2>/dev/null || echo "部分服务已关闭"; }
+# 颜色定义（在菜单脚本内部也需要）
+re="\033[0m"
+green="\e[1;32m"
+red="\033[1;91m"
+
+# 检查服务运行状态
+check_process() {
+    local pidfile=$1
+    local service_name=$2
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+        echo -e "${green}[$service_name] 正在运行 (PID: $(cat "$pidfile"))${re}"
+        return 0
+    else
+        echo -e "${red}[$service_name] 未运行${re}"
+        return 1
+    fi
+}
+
+start_vless(){
+    if check_process "$pidfile1" "VLESS"; then
+        echo -e "${yellow}VLESS 已经在运行，无需重复启动。${re}"
+        return
+    fi
+    echo -e "${green}🚀 启动 VLESS Reality...${re}"
+    nohup "$BIN" run -c "$WORKDIR/config/vless.json" > "$LOG1" 2>&1 &
+    echo $! > "$pidfile1"
+    sleep 1 # 等待服务启动
+    if check_process "$pidfile1" "VLESS"; then
+        echo -e "${green}✅ VLESS 启动成功，端口: $PORT，PID: $(cat $pidfile1)${re}"
+    else
+        echo -e "${red}❌ VLESS 启动失败，请检查日志: $LOG1${re}"
+    fi
+}
+start_hysteria(){
+    if check_process "$pidfile2" "Hysteria2"; then
+        echo -e "${yellow}Hysteria2 已经在运行，无需重复启动。${re}"
+        return
+    fi
+    echo -e "${green}🚀 启动 Hysteria2 TLS...${re}"
+    nohup "$BIN" run -c "$WORKDIR/config/hysteria2.json" > "$LOG2" 2>&1 &
+    echo $! > "$pidfile2"
+    sleep 1 # 等待服务启动
+    if check_process "$pidfile2" "Hysteria2"; then
+        echo -e "${green}✅ Hysteria2 启动成功，端口: $HYSTERIA2_PORT，PID: $(cat $pidfile2)${re}"
+    else
+        echo -e "${red}❌ Hysteria2 启动失败，请检查日志: $LOG2${re}"
+    fi
+}
+stop_all(){
+    echo -e "${yellow}🛑 停止全部服务...${re}"
+    local stopped_count=0
+    if check_process "$pidfile1" "VLESS"; then
+        kill "$(cat "$pidfile1")" 2>/dev/null && rm -f "$pidfile1" && stopped_count=$((stopped_count+1))
+        echo -e "${green}VLESS 服务已停止。${re}"
+    fi
+    if check_process "$pidfile2" "Hysteria2"; then
+        kill "$(cat "$pidfile2")" 2>/dev/null && rm -f "$pidfile2" && stopped_count=$((stopped_count+1))
+        echo -e "${green}Hysteria2 服务已停止。${re}"
+    fi
+    if [ "$stopped_count" -eq 0 ]; then
+        echo -e "${yellow}没有正在运行的服务需要停止。${re}"
+    else
+        echo -e "${green}所有已知的 Sing-box 服务已停止。${re}"
+    fi
+}
+show_status(){
+    echo -e "\n=== 服务运行状态 ==="
+    check_process "$pidfile1" "VLESS"
+    check_process "$pidfile2" "Hysteria2"
+    echo "======================"
+}
 show_menu(){
-  clear; echo "=== Sing-box 管理面板 ==="
-  echo "1) 启动 VLESS Reality"; echo "2) 启动 Hysteria2 TLS"
-  echo "3) 停止全部服务"; echo "4) 查看日志"
-  echo "5) 查看配置"; echo "6) 退出"
-  echo -n "请选择 [1-6]: "
+    clear;
+    echo -e "${green}=== Sing-box 管理面板 ===${re}"
+    show_status
+    echo -e "\n1) 启动 VLESS Reality"
+    echo -e "2) 启动 Hysteria2 TLS"
+    echo -e "3) 停止全部服务"
+    echo -e "4) 查看 VLESS 日志"
+    echo -e "5) 查看 Hysteria2 日志"
+    echo -e "6) 查看 VLESS 配置"
+    echo -e "7) 查看 Hysteria2 配置"
+    echo -e "8) 退出"
+    echo -n -e "${purple}请选择 [1-8]: ${re}"
 }
 while true; do
-  show_menu
-  read -r choice
-  case $choice in
-    1) start_vless;; 2) start_hysteria;; 3) stop_all;;
-    4) echo "-- VLESS 日志 --"; tail -n20 "$LOG1"; echo; echo "-- Hysteria2 日志 --"; tail -n20 "$LOG2";;
-    5) echo "-- VLESS 配置 --"; head -n20 "$WORKDIR/config/vless.json"; echo; echo "-- Hysteria2 配置 --"; head -n20 "$WORKDIR/config/hysteria2.json";;
-    6) exit 0;;
-    *) echo "无效输入";;
-  esac
-  echo "按回车继续…"; read
+    show_menu
+    read -r choice
+    case $choice in
+        1) start_vless;;
+        2) start_hysteria;;
+        3) stop_all;;
+        4) echo -e "${green}-- VLESS 日志 (最近20行) --${re}"; tail -n20 "$LOG1" || echo -e "${yellow}日志文件不存在或为空。${re}";;
+        5) echo -e "${green}-- Hysteria2 日志 (最近20行) --${re}"; tail -n20 "$LOG2" || echo -e "${yellow}日志文件不存在或为空。${re}";;
+        6) echo -e "${green}-- VLESS 配置 --${re}"; head -n20 "$WORKDIR/config/vless.json";;
+        7) echo -e "${green}-- Hysteria2 配置 --${re}"; head -n20 "$WORKDIR/config/hysteria2.json";;
+        8) stop_all; echo -e "${green}退出管理面板。${re}"; exit 0;;
+        *) echo -e "${red}无效输入，请重新选择。${re}";;
+    esac
+    echo -e "${yellow}按回车键继续...${re}"; read -r
 done
 EOF
 
 chmod +x "$WORKDIR/menu.sh"
 
 echo
-echo "✅ 安装完成，管理面板启动： bash ~/sing-box-no-root/menu.sh"
+echo -e "${green}✅ Sing-box 基础环境安装完成！${re}"
+echo -e "${green}管理面板启动命令: bash $WORKDIR/menu.sh${re}"
 echo
-echo "📎 v2rayN 客户端链接："
-echo
+echo -e "${green}--- VLESS Reality 客户端链接 ---${re}"
+echo -e "${yellow}请替换 \$DOMAIN 为您的实际域名，并确保443端口已正确映射到服务器。${re}"
 echo "vless://$UUID@$DOMAIN:$PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$DOMAIN&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&type=tcp&headerType=none#vless_reality"
 echo
+echo -e "${green}--- Hysteria2 TLS 客户端链接 ---${re}"
+echo -e "${yellow}请替换 \$DOMAIN 为您的实际域名，并确保30002端口已正确开放。${re}"
+echo "hysteria2://$DOMAIN:$HYSTERIA2_PORT?insecure=1&password=$HYSTERIA2_PASSWORD#hysteria2_tls"
+echo -e "${yellow}注意：Hysteria2 客户端需要自行导入证书 trust_ca: $WORKDIR/config/self.crt${re}"
+echo
+echo -e "${purple}首次运行，请执行 'bash $WORKDIR/menu.sh' 选择 1 和 2 启动服务。${re}"
