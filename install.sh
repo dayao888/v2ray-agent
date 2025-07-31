@@ -26,10 +26,10 @@ rm -rf "$WORKDIR"
 echo -e "${green}📁 创建工作目录...${re}"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
-# --- 架构检测 (已修正，并增加调试输出) ---
+# --- 架构检测 (保留，但不再用于决定下载路径，仅作信息显示) ---
 arch=$(uname -m)
-echo -e "${yellow}检测到的系统架构: $arch${re}" # 新增的调试输出
-if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then # 修正：添加了对 "amd64" 的支持
+echo -e "${yellow}检测到的系统架构: $arch${re}" # 调试输出
+if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
     platform="amd64"
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
     platform="arm64"
@@ -38,34 +38,31 @@ else
     exit 1
 fi
 
-# --- 下载 Sing-box ---
-# 使用 Sing-box 官方最新版本
-version="1.11.9" # 您可以根据需要更改为最新版本
-echo -e "${green}📦 下载 Sing-box 版本: $version for Linux $platform...${re}"
-url="https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-linux-$platform.tar.gz"
-DOWNLOADED_FILE="$WORKDIR/sing-box.tar.gz"
+# --- 下载 Sing-box (完全借鉴 serv00.sh 的下载方式) ---
+# 直接从 yonggekkk 的仓库下载预编译的 sb 二进制文件
+echo -e "${green}📦 下载 Sing-box (Serv00 兼容版本)...${re}"
+# 注意：这里直接下载 sb 文件，因为它被假定为预编译好的可执行文件，
+# 不再需要版本号，也不再是 tar.gz 压缩包。
+url="https://github.com/yonggekkk/Cloudflare_vless_trojan/releases/download/serv00/sb"
+SINGBOX_BIN_PATH="$BIN_DIR/sing-box" # 将下载的文件直接保存为 sing-box
 
 # 使用 curl 下载，带进度条
 if command -v curl >/dev/null 2>&1; then
-    curl -L -o "$DOWNLOADED_FILE" "$url"
+    curl -L -o "$SINGBOX_BIN_PATH" "$url"
 elif command -v wget >/dev/null 2>&1; then
-    wget -O "$DOWNLOADED_FILE" "$url"
+    wget -O "$SINGBOX_BIN_PATH" "$url"
 else
     echo -e "${red}❌ 无法下载 Sing-box，请确保已安装 curl 或 wget。${re}"
     exit 1
 fi
 
-if [ ! -f "$DOWNLOADED_FILE" ]; then
-    echo -e "${red}❌ Sing-box 下载失败，文件不存在: $DOWNLOADED_FILE${re}"
+if [ ! -f "$SINGBOX_BIN_PATH" ]; then
+    echo -e "${red}❌ Sing-box 下载失败，文件不存在: $SINGBOX_BIN_PATH${re}"
     exit 1
 fi
 
-echo -e "${green}解压 Sing-box...${re}"
-tar -zxf "$DOWNLOADED_FILE" -C "$WORKDIR" --strip-components=1 "sing-box-$version-linux-$platform/sing-box"
-mv "$WORKDIR/sing-box" "$BIN_DIR/sing-box"
-chmod +x "$BIN_DIR/sing-box"
-rm -f "$DOWNLOADED_FILE" # 删除压缩包
-rm -rf "$WORKDIR/sing-box-$version-linux-$platform" # 清理解压目录残留
+echo -e "${green}赋予 Sing-box 执行权限...${re}"
+chmod +x "$SINGBOX_BIN_PATH"
 
 # --- 生成 UUID 和 Reality 密钥 ---
 echo -e "${green}🔑 生成 UUID 和 Reality 密钥...${re}"
