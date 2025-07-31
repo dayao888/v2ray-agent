@@ -26,9 +26,9 @@ rm -rf "$WORKDIR"
 echo -e "${green}📁 创建工作目录...${re}"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
-# --- 架构检测 ---
+# --- 架构检测 (已修正) ---
 arch=$(uname -m)
-if [[ "$arch" == "x86_64" ]]; then
+if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then # 修正：添加了对 "amd64" 的支持
     platform="amd64"
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
     platform="arm64"
@@ -158,6 +158,7 @@ pidfile2="$PID_DIR/hysteria2.pid"
 re="\033[0m"
 green="\e[1;32m"
 red="\033[1;91m"
+yellow="\e[1;33m"
 
 # 检查服务运行状态
 check_process() {
