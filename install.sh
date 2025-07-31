@@ -65,7 +65,6 @@ echo -e "${green}🔑 生成 UUID 和 Reality 密钥...${re}"
 if command -v uuidgen >/dev/null 2>&1; then
     UUID=$(uuidgen)
 else
-    # 兼容性处理，使用 openssl 生成类似 UUID 的字符串
     UUID=$(openssl rand -hex 16 | sed 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1\2\3\4-\5\6-\7\8-\9\10-\11\12\13\14\15\16/')
 fi
 echo "生成的 UUID: $UUID"
@@ -79,10 +78,10 @@ echo "生成的 PrivateKey: $PRIVATE_KEY"
 echo "生成的 PublicKey: $PUBLIC_KEY"
 echo "生成的 ShortId: $SHORT_ID"
 
-# --- 定义配置参数 ---
+# --- 定义配置参数 (使用您提供的开放端口) ---
 DOMAIN="www.5215211.xyz" # 您的域名
-PORT=22724 # VLESS Reality 监听端口
-HYSTERIA2_PORT=30002 # Hysteria2 监听端口
+PORT=2053 # VLESS Reality 监听端口，选择开放端口中的一个
+HYSTERIA2_PORT=52098 # Hysteria2 监听端口，选择开放端口中的一个
 HYSTERIA2_PASSWORD="mypass123" # Hysteria2 密码，请务必修改为强密码
 
 echo -e "${green}📝 生成 Sing-box VLESS Reality 配置文件...${re}"
@@ -113,32 +112,27 @@ echo -e "${green}📝 生成 Sing-box Hysteria2 配置文件...${re}"
 echo -e "${green}🔐 生成自签名 TLS 证书...${re}"
 openssl req -x509 -newkey rsa:2048 -keyout "$CONFIG_DIR/self.key" -out "$CONFIG_DIR/self.crt" -days 365 -nodes -subj "/CN=$DOMAIN"
 
-cat > "$CONFIG_DIR/hysteria2.json" <<EOF
-{
-  "log": { "level": "info" },
-  "inbounds": [{
-    "type": "hysteria2",
-    "listen": "0.0.0.0",
-    "listen_port": $HYSTERIA2_PORT,
-    "users": [{ "password": "$HYSTERIA2_PASSWORD" }],
-    "tls": {
-      "enabled": true,
-      "cert": "$CONFIG_DIR/self.crt",
-      "key": "$CONFIG_DIR/self.key",
-      "alpn": ["h2", "h3"]
+printf '%s\n' "{
+  \"log\": { \"level\": \"info\" },
+  \"inbounds\": [{
+    \"type\": \"hysteria2\",
+    \"listen\": \"0.0.0.0\",
+    \"listen_port\": $HYSTERIA2_PORT,
+    \"users\": [{ \"password\": \"$HYSTERIA2_PASSWORD\" }],
+    \"tls\": {
+      \"enabled\": true,
+      \"certificate\": \"$CONFIG_DIR/self.crt\",
+      \"certificate_key\": \"$CONFIG_DIR/self.key\",
+      \"alpn\": [\"h2\", \"h3\"]
     }
   }],
-  "outbounds": [{ "type": "direct" }]
-}
-EOF
+  \"outbounds\": [{ \"type\": \"direct\" }]
+}" > "$CONFIG_DIR/hysteria2.json"
 
-# --- 生成管理菜单脚本 (改为使用 printf 写入，避免 heredoc 粘贴问题) ---
+
+# --- 生成管理菜单脚本 ---
 echo -e "${green}⚙️ 生成管理面板脚本...${re}"
 
-# 定义菜单脚本的内容，注意内部变量需要正确转义
-# $ 和 ! 在这里需要被转义为 \$ 和 \!
-# 双引号内的变量会被主脚本替换，单引号内的不会
-# 每次打印一行，这样更稳定
 printf '%s\n' "#!/usr/bin/env bash
 WORKDIR=\"$HOME/sing-box-no-root\"
 BIN=\"\$WORKDIR/bin/sing-box\"
@@ -149,13 +143,11 @@ mkdir -p \"\$PID_DIR\"
 pidfile1=\"\$PID_DIR/vless.pid\"
 pidfile2=\"\$PID_DIR/hysteria2.pid\"
 
-# 颜色定义（在菜单脚本内部也需要）
 re=\"\033[0m\"
 green=\"\e[1;32m\"
 red=\"\033[1;91m\"
 yellow=\"\e[1;33m\"
 
-# 检查服务运行状态
 check_process() {
     local pidfile=\$1
     local service_name=\$2
@@ -263,7 +255,7 @@ echo -e "${yellow}请替换 \$DOMAIN 为您的实际域名，并确保443端口�
 echo "vless://$UUID@$DOMAIN:$PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$DOMAIN&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&type=tcp&headerType=none#vless_reality"
 echo
 echo -e "${green}--- Hysteria2 TLS 客户端链接 ---${re}"
-echo -e "${yellow}请替换 \$DOMAIN 为您的实际域名，并确保30002端口已正确开放。${re}"
+echo -e "${yellow}请替换 \$DOMAIN 为您的实际域名，并确保$HYSTERIA2_PORT端口已正确开放。${re}"
 echo "hysteria2://$DOMAIN:$HYSTERIA2_PORT?insecure=1&password=$HYSTERIA2_PASSWORD#hysteria2_tls"
 echo -e "${yellow}注意：Hysteria2 客户端需要自行导入证书 trust_ca: $WORKDIR/config/self.crt${re}"
 echo
