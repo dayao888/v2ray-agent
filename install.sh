@@ -31,8 +31,10 @@ arch=$(uname -m)
 echo -e "${yellow}检测到的系统架构: $arch${re}" # 调试输出
 if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
     platform="amd64"
+    # 这里不需要 os_type 了，因为我们直接下载预编译的 sb
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
     platform="arm64"
+    # 这里不需要 os_type 了，因为我们直接下载预编译的 sb
 else
     echo -e "${red}❌ 不支持的架构: $arch${re}"
     exit 1
@@ -139,8 +141,9 @@ cat > "$CONFIG_DIR/hysteria2.json" <<EOF
 }
 EOF
 
-# --- 生成管理菜单脚本 ---
+# --- 生成管理菜单脚本 (添加调试输出) ---
 echo -e "${green}⚙️ 生成管理面板脚本...${re}"
+set -x # 开启调试模式，显示执行的命令
 cat > "$WORKDIR/menu.sh" << EOF
 #!/usr/bin/env bash
 WORKDIR="$HOME/sing-box-no-root"
@@ -178,7 +181,7 @@ start_vless(){
     fi
     echo -e "${green}🚀 启动 VLESS Reality...${re}"
     nohup "$BIN" run -c "$WORKDIR/config/vless.json" > "$LOG1" 2>&1 &
-    echo $! > "$pidfile1"
+    echo \$! > "$pidfile1" # 这里使用 \$! 以避免在生成时被主脚本变量替换
     sleep 1 # 等待服务启动
     if check_process "$pidfile1" "VLESS"; then
         echo -e "${green}✅ VLESS 启动成功，端口: $PORT，PID: $(cat $pidfile1)${re}"
@@ -193,7 +196,7 @@ start_hysteria(){
     fi
     echo -e "${green}🚀 启动 Hysteria2 TLS...${re}"
     nohup "$BIN" run -c "$WORKDIR/config/hysteria2.json" > "$LOG2" 2>&1 &
-    echo $! > "$pidfile2"
+    echo \$! > "$pidfile2" # 这里使用 \$! 以避免在生成时被主脚本变量替换
     sleep 1 # 等待服务启动
     if check_process "$pidfile2" "Hysteria2"; then
         echo -e "${green}✅ Hysteria2 启动成功，端口: $HYSTERIA2_PORT，PID: $(cat $pidfile2)${re}"
@@ -205,14 +208,14 @@ stop_all(){
     echo -e "${yellow}🛑 停止全部服务...${re}"
     local stopped_count=0
     if check_process "$pidfile1" "VLESS"; then
-        kill "$(cat "$pidfile1")" 2>/dev/null && rm -f "$pidfile1" && stopped_count=$((stopped_count+1))
+        kill "\$(cat "$pidfile1")" 2>/dev/null && rm -f "$pidfile1" && stopped_count=\$((stopped_count+1))
         echo -e "${green}VLESS 服务已停止。${re}"
     fi
     if check_process "$pidfile2" "Hysteria2"; then
-        kill "$(cat "$pidfile2")" 2>/dev/null && rm -f "$pidfile2" && stopped_count=$((stopped_count+1))
+        kill "\$(cat "$pidfile2")" 2>/dev/null && rm -f "$pidfile2" && stopped_count=\$((stopped_count+1))
         echo -e "${green}Hysteria2 服务已停止。${re}"
     fi
-    if [ "$stopped_count" -eq 0 ]; then
+    if [ "\$stopped_count" -eq 0 ]; then
         echo -e "${yellow}没有正在运行的服务需要停止。${re}"
     else
         echo -e "${green}所有已知的 Sing-box 服务已停止。${re}"
@@ -241,7 +244,7 @@ show_menu(){
 while true; do
     show_menu
     read -r choice
-    case $choice in
+    case \$choice in # 这里也需要转义 choice
         1) start_vless;;
         2) start_hysteria;;
         3) stop_all;;
@@ -255,6 +258,7 @@ while true; do
     echo -e "${yellow}按回车键继续...${re}"; read -r
 done
 EOF
+set +x # 关闭调试模式
 
 chmod +x "$WORKDIR/menu.sh"
 
