@@ -1,4 +1,3 @@
-cat > ~/install.sh << 'EOF'
 #!/usr/bin/env bash
 set -e
 
@@ -30,8 +29,13 @@ tar -zxf sing-box.tar.gz
 mv "sing-box-$version-linux-$platform" "$WORKDIR/bin"
 rm -f sing-box.tar.gz
 
-# 🔑 生成密钥
-UUID=$(cat /proc/sys/kernel/random/uuid)
+# 🔑 生成密钥 & UUID（兼容无 /proc/sys/kernel/random/uuid 的系统）
+if command -v uuidgen >/dev/null 2>&1; then
+  UUID=$(uuidgen)
+else
+  UUID=$(openssl rand -hex 16 | sed 's/\(..\)/\1-/4; s/\(..\)/\1-/6; s/\(..\)/\1-/8; s/\(..\)/\1-/10')
+fi
+
 KEYS=$("$WORKDIR/bin/sing-box" generate reality-key)
 PRIVATE_KEY=$(echo "$KEYS" | grep PrivateKey | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep PublicKey | awk '{print $2}')
@@ -143,8 +147,3 @@ echo "📎 v2rayN 客户端链接："
 echo
 echo "vless://$UUID@$DOMAIN:$PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$DOMAIN&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&type=tcp&headerType=none#vless_reality"
 echo
-EOF
-
-# 执行安装
-chmod +x ~/install.sh
-bash ~/install.sh
