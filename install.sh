@@ -26,8 +26,9 @@ rm -rf "$WORKDIR"
 echo -e "${green}📁 创建工作目录...${re}"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
-# --- 架构检测 (已修正) ---
+# --- 架构检测 (已修正，并增加调试输出) ---
 arch=$(uname -m)
+echo -e "${yellow}检测到的系统架构: $arch${re}" # 新增的调试输出
 if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then # 修正：添加了对 "amd64" 的支持
     platform="amd64"
 elif [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
