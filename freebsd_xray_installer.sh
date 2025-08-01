@@ -45,7 +45,7 @@ check_dependencies() {
     print_color "blue" "检查必要依赖..."
     
     # 检查并安装必要的工具
-    for cmd in curl jq openssl; do
+    for cmd in curl jq openssl unzip; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             print_color "yellow" "未找到 $cmd，尝试安装..."
             pkg install -y "$cmd" || {
@@ -70,14 +70,9 @@ create_directories() {
 download_xray() {
     print_color "blue" "下载Xray-core..."
     
-    # 获取最新版本
-    XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
-    if [ -z "$XRAY_VERSION" ] || [ "$XRAY_VERSION" = "null" ]; then
-        XRAY_VERSION="v1.8.4" # 如果无法获取，使用固定版本
-        print_color "yellow" "无法获取最新版本，使用默认版本: $XRAY_VERSION"
-    else
-        print_color "green" "获取到最新版本: $XRAY_VERSION"
-    fi
+    # 使用固定版本，避免版本号获取错误
+    XRAY_VERSION="v1.8.4"
+    print_color "green" "使用Xray版本: $XRAY_VERSION"
     
     # 下载Xray
     XRAY_FILE="Xray-freebsd-64.zip"
@@ -284,7 +279,7 @@ start_xray() {
     fi
     
     print_color "blue" "启动Xray..."
-    nohup "$BIN_DIR/xray" run -c "$CONFIG_DIR/config.json" > "$LOG_DIR/stdout.log" 2>&1 &
+    cd "$WORK_DIR" && nohup "$BIN_DIR/xray" run -c "$CONFIG_DIR/config.json" > "$LOG_DIR/stdout.log" 2>&1 &
     echo $! > "$PID_FILE"
     
     sleep 2
@@ -420,7 +415,7 @@ while true; do
         *) print_color "red" "无效的选择，请重试" ;;
     esac
     printf "\n按Enter键继续..."
-    read -r
+    read -r dummy
 done
 EOF
 
