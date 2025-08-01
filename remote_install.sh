@@ -38,7 +38,7 @@ download_installer() {
     mkdir -p "$TMP_DIR"
     
     # 下载安装脚本
-    if ! fetch -o "$TMP_DIR/freebsd_xray_installer.sh" "https://raw.githubusercontent.com/yourusername/freebsd-xray/main/freebsd_xray_installer.sh" 2>/dev/null; then
+    if ! fetch -o "$TMP_DIR/freebsd_xray_installer.sh" "https://raw.githubusercontent.com/dayao888/v2ray-agent/master/freebsd_xray_installer.sh" 2>/dev/null; then
         print_color "yellow" "无法从GitHub下载，使用本地脚本..."
         
         # 如果下载失败，使用内联脚本
@@ -115,14 +115,9 @@ create_directories() {
 download_xray() {
     print_color "blue" "下载Xray-core..."
     
-    # 获取最新版本
-    XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
-    if [ -z "$XRAY_VERSION" ] || [ "$XRAY_VERSION" = "null" ]; then
-        XRAY_VERSION="v1.8.4" # 如果无法获取，使用固定版本
-        print_color "yellow" "无法获取最新版本，使用默认版本: $XRAY_VERSION"
-    else
-        print_color "green" "获取到最新版本: $XRAY_VERSION"
-    fi
+    # 使用固定版本，避免版本号获取错误
+    XRAY_VERSION="v1.8.4"
+    print_color "green" "使用Xray版本: $XRAY_VERSION"
     
     # 下载Xray
     XRAY_FILE="Xray-freebsd-64.zip"
