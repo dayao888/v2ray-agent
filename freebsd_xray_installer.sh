@@ -71,7 +71,7 @@ download_xray() {
     print_color "blue" "下载Xray-core..."
     
     # 使用固定版本，避免版本号获取错误
-    XRAY_VERSION="v1.8.4"
+    XRAY_VERSION="v25.7.26"
     print_color "green" "使用Xray版本: $XRAY_VERSION"
     
     # 下载Xray
