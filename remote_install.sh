@@ -277,7 +277,14 @@ EOF
 create_management_script() {
     print_color "blue" "创建管理脚本..."
     
-    cat > "$WORK_DIR/menu.sh" << 'EOF'
+    # 使用修复后的菜单脚本
+    cp "$(dirname "$0")/fixed_menu.sh" "$WORK_DIR/menu.sh"
+    chmod +x "$WORK_DIR/menu.sh"
+    print_color "green" "管理脚本已创建: $WORK_DIR/menu.sh"
+    return
+    
+    # 以下是原始脚本，已被替换
+    cat > "$WORK_DIR/menu.sh.bak" << 'EOF'
 #!/bin/sh
 
 # 工作目录
@@ -321,6 +328,19 @@ start_xray() {
     if check_running; then
         print_color "yellow" "Xray已经在运行中，PID: $(cat "$PID_FILE")"
         return
+    fi
+    
+    # 检查配置文件
+    if [ ! -f "$CONFIG_DIR/config.json" ]; then
+        print_color "red" "配置文件不存在: $CONFIG_DIR/config.json"
+        return 1
+    fi
+    
+    # 验证配置文件...
+    print_color "blue" "验证配置文件..."
+    if ! python3 -m json.tool "$CONFIG_DIR/config.json" > "$LOG_DIR/config_test.log" 2>&1 && ! jq . "$CONFIG_DIR/config.json" > "$LOG_DIR/config_test.log" 2>&1; then
+        print_color "red" "配置文件验证失败，请检查: $LOG_DIR/config_test.log"
+        return 1
     fi
     
     print_color "blue" "启动Xray..."
