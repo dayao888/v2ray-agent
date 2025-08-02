@@ -331,18 +331,12 @@ EOF
     print_color "blue" "4. 定期检查日志文件，监控异常连接"
 }
 
+# --- IMPROVED SCRIPT SECTION ---
 # 创建管理脚本
 create_management_script() {
     print_color "blue" "创建管理脚本..."
     
-    # 使用修复后的菜单脚本
-    cp "$(dirname "$0")/fixed_menu.sh" "$WORK_DIR/menu.sh"
-    chmod +x "$WORK_DIR/menu.sh"
-    print_color "green" "管理脚本已创建: $WORK_DIR/menu.sh"
-    return
-    
-    # 以下是原始脚本，已被替换
-    cat > "$WORK_DIR/menu.sh.bak" << 'EOF'
+    cat > "$WORK_DIR/menu.sh" << 'EOF'
 #!/bin/sh
 
 # 工作目录
@@ -388,42 +382,29 @@ start_xray() {
         return
     fi
     
-    # 检查配置文件
     if [ ! -f "$CONFIG_DIR/config.json" ]; then
         print_color "red" "配置文件不存在: $CONFIG_DIR/config.json"
         return 1
     fi
     
-    # 检查配置文件语法（新版本Xray不支持test命令，改用基本语法检查）
     print_color "blue" "检查配置文件语法..."
-    if ! python3 -m json.tool "$CONFIG_DIR/config.json" > /dev/null 2>&1 && ! jq . "$CONFIG_DIR/config.json" > /dev/null 2>&1; then
+    if ! jq . "$CONFIG_DIR/config.json" > /dev/null 2>&1; then
         print_color "red" "配置文件JSON格式错误，请检查配置文件"
+        jq . "$CONFIG_DIR/config.json"
         return 1
     fi
     print_color "green" "配置文件格式检查通过"
     
     print_color "blue" "启动Xray..."
-    cd "$WORK_DIR" || exit 1
-    
-    # 使用更详细的日志记录
     nohup "$BIN_DIR/xray" run -c "$CONFIG_DIR/config.json" > "$LOG_DIR/stdout.log" 2>&1 &
-    local xray_pid=$!
-    echo $xray_pid > "$PID_FILE"
+    echo $! > "$PID_FILE"
     
-    # 等待更长时间确保启动完成
-    sleep 3
-    
+    sleep 2
     if check_running; then
-        print_color "green" "Xray启动成功，PID: $xray_pid"
-        # 显示监听端口
-        local port=$(grep -o '"port": [0-9]*' "$CONFIG_DIR/config.json" | head -1 | awk '{print $2}')
-        print_color "blue" "监听端口: $port"
+        print_color "green" "Xray启动成功，PID: $(cat "$PID_FILE")"
     else
-        print_color "red" "Xray启动失败，请检查日志:"
-        print_color "yellow" "配置测试: $LOG_DIR/config_test.log"
-        print_color "yellow" "运行日志: $LOG_DIR/stdout.log"
-        print_color "yellow" "错误日志: $LOG_DIR/error.log"
-        return 1
+        print_color "red" "Xray启动失败，请检查日志: $LOG_DIR/stdout.log"
+        tail -n 20 "$LOG_DIR/stdout.log"
     fi
 }
 
@@ -452,12 +433,9 @@ restart_xray() {
 # 查看Xray状态
 status_xray() {
     if check_running; then
+        PORT=$(grep -o '"port": [0-9]*' "$CONFIG_DIR/config.json" | head -1 | awk '{print $2}')
         print_color "green" "Xray正在运行，PID: $(cat "$PID_FILE")"
         print_color "blue" "配置文件: $CONFIG_DIR/config.json"
-        print_color "blue" "日志文件: $LOG_DIR/access.log, $LOG_DIR/error.log"
-        
-        # 显示监听端口
-        PORT=$(grep -o '"port": [0-9]*' "$CONFIG_DIR/config.json" | awk '{print $2}')
         print_color "blue" "监听端口: $PORT"
     else
         print_color "yellow" "Xray未在运行"
@@ -469,7 +447,6 @@ show_client_info() {
     if [ -f "$CONFIG_DIR/client_link.txt" ]; then
         print_color "green" "客户端连接信息:"
         cat "$CONFIG_DIR/client_link.txt"
-        print_color "yellow" "提示: 请使用支持VLESS+Reality的客户端，如v2rayN, v2rayNG, Shadowrocket等"
     else
         print_color "red" "未找到客户端连接信息"
     fi
@@ -477,21 +454,14 @@ show_client_info() {
 
 # 查看日志
 view_logs() {
-    print_color "blue" "最近的错误日志 (最后20行):"
+    print_color "blue" "--- 最近的错误日志 (error.log) ---"
     if [ -f "$LOG_DIR/error.log" ]; then
         tail -n 20 "$LOG_DIR/error.log"
     else
         print_color "yellow" "错误日志文件不存在"
     fi
     
-    print_color "blue" "\n最近的访问日志 (最后20行):"
-    if [ -f "$LOG_DIR/access.log" ]; then
-        tail -n 20 "$LOG_DIR/access.log"
-    else
-        print_color "yellow" "访问日志文件不存在"
-    fi
-    
-    print_color "blue" "\n运行日志 (最后20行):"
+    print_color "blue" "\n--- 最近的运行日志 (stdout.log) ---"
     if [ -f "$LOG_DIR/stdout.log" ]; then
         tail -n 20 "$LOG_DIR/stdout.log"
     else
@@ -503,32 +473,16 @@ view_logs() {
 security_check() {
     print_color "blue" "=== 安全状态检查 ==="
     
-    # 检查端口状态
     local port=$(grep -o '"port": [0-9]*' "$CONFIG_DIR/config.json" | head -1 | awk '{print $2}')
     if netstat -an | grep -q ":$port "; then
         print_color "green" "端口 $port 正在监听"
     else
         print_color "yellow" "端口 $port 未在监听"
     fi
-    
-    # 检查配置文件权限
-    if [ -f "$CONFIG_DIR/config.json" ]; then
-        local perms=$(stat -f "%Mp%Lp" "$CONFIG_DIR/config.json")
-        print_color "blue" "配置文件权限: $perms"
-    fi
-    
-    # 检查日志文件大小
-    for log_file in "$LOG_DIR/access.log" "$LOG_DIR/error.log" "$LOG_DIR/stdout.log"; do
-        if [ -f "$log_file" ]; then
-            local size=$(stat -f "%z" "$log_file")
-            print_color "blue" "$(basename "$log_file"): ${size} bytes"
-        fi
-    done
-    
-    # 显示连接统计
+
     if [ -f "$LOG_DIR/access.log" ]; then
         local conn_count=$(grep -c "accepted" "$LOG_DIR/access.log" 2>/dev/null || echo "0")
-        print_color "blue" "总连接数: $conn_count"
+        print_color "blue" "总连接数 (估算): $conn_count"
     fi
 }
 
@@ -552,7 +506,7 @@ uninstall_xray() {
 show_menu() {
     clear
     echo "========================================"
-    echo "    Xray FreeBSD 管理脚本 v1.0        "
+    echo "    Xray FreeBSD 管理脚本 v1.1        "
     echo "========================================"
     echo ""
     
@@ -577,7 +531,28 @@ show_menu() {
     printf "请选择操作 [0-8]: "
 }
 
-# 主循环
+# 主程序逻辑
+main() {
+    case "$1" in
+        1) start_xray ;;  
+        2) stop_xray ;;   
+        3) restart_xray ;;
+        4) status_xray ;; 
+        5) show_client_info ;;
+        6) view_logs ;;   
+        7) security_check ;;
+        8) uninstall_xray ;;
+        *) print_color "red" "无效的参数: $1" ;;
+    esac
+}
+
+# 如果带参数运行，执行对应功能后退出
+if [ -n "$1" ]; then
+    main "$1"
+    exit 0
+fi
+
+# 如果不带参数，进入交互式菜单循环
 while true; do
     show_menu
     read -r choice
@@ -605,54 +580,30 @@ EOF
 # 主函数
 main() {
     print_color "green" "===== FreeBSD Xray安装脚本 - 增强安全版本 ====="
-    print_color "blue" "适用于FreeBSD 14.1 amd64架构"
-    print_color "blue" "Xray版本: v25.5.16 (最新稳定版)"
-    print_color "yellow" "注意: 此脚本将在用户目录下安装Xray，具备增强的安全特性"
     
-    # 检查系统
     check_system
-    
-    # 检查依赖
     check_dependencies
-    
-    # 创建工作目录
     create_directories
-    
-    # 下载Xray
     download_xray
-    
-    # 配置Xray
     configure_xray
-    
-    # 创建管理脚本
     create_management_script
     
     print_color "green" "===== 安装完成 ====="
     print_color "blue" "Xray v25.5.16 已安装到: $WORK_DIR"
-    print_color "blue" "配置文件位于: $CONFIG_DIR/config.json"
     print_color "blue" "管理脚本: $WORK_DIR/menu.sh"
     print_color "yellow" "使用方法: sh $WORK_DIR/menu.sh"
-    print_color "green" "\n=== 安全特性 ==="
-    print_color "blue" "✓ 多短ID配置增强安全性"
-    print_color "blue" "✓ 随机伪装域名降低特征"
-    print_color "blue" "✓ 智能端口选择和检测"
-    print_color "blue" "✓ 增强的路由规则和广告拦截"
-    print_color "blue" "✓ 多重IP检测机制"
     
-    # 显示客户端信息
     print_color "green" "\n===== 客户端连接信息 ====="
     if [ -f "$CONFIG_DIR/client_link.txt" ]; then
         cat "$CONFIG_DIR/client_link.txt"
     fi
-    print_color "yellow" "提示: 请使用支持VLESS+Reality的客户端，如v2rayN, v2rayNG, Shadowrocket等"
     
-    # 询问是否立即启动
-    printf "${BLUE}是否立即启动Xray? (y/n): ${PLAIN}"
+    printf "\n${BLUE}是否立即启动Xray? (y/n): ${PLAIN}"
     read -r start_now
     if [ "$start_now" = "y" ] || [ "$start_now" = "Y" ]; then
         sh "$WORK_DIR/menu.sh" 1
     else
-        print_color "blue" "您可以稍后使用管理脚本启动Xray"
+        print_color "blue" "您可以稍后使用 'sh $WORK_DIR/menu.sh 1' 命令启动Xray"
     fi
 }
 
